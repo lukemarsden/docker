@@ -45,7 +45,6 @@ import (
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/docker/trust"
 	"github.com/docker/docker/utils"
-	"github.com/docker/docker/volume"
 	volumedrivers "github.com/docker/docker/volume/drivers"
 	"github.com/docker/docker/volume/local"
 
@@ -216,7 +215,7 @@ func (daemon *Daemon) register(container *Container, updateSuffixarray bool) err
 
 	for _, config := range container.MountPoints {
 		if len(config.Driver) > 0 {
-			v, err := daemon.createVolume(config.Name, config.Driver)
+			v, err := createVolume(config.Name, config.Driver)
 			if err != nil {
 				return err
 			}
@@ -955,33 +954,6 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	}
 
 	return d, nil
-}
-
-func (d *Daemon) createVolume(name, driverName string) (volume.Volume, error) {
-	vd, err := d.getVolumeDriver(driverName)
-	if err != nil {
-		return nil, err
-	}
-	return vd.Create(name)
-}
-
-func (d *Daemon) removeVolume(v volume.Volume) error {
-	vd, err := d.getVolumeDriver(v.DriverName())
-	if err != nil {
-		return nil
-	}
-	return vd.Remove(v)
-}
-
-func (d *Daemon) getVolumeDriver(name string) (volume.Driver, error) {
-	if name == "" {
-		name = "local"
-	}
-	vd := volumedrivers.Lookup(name)
-	if vd == nil {
-		return nil, fmt.Errorf("Volumes Driver %s isn't registered", name)
-	}
-	return vd, nil
 }
 
 func (daemon *Daemon) Shutdown() error {

@@ -11,7 +11,10 @@ import (
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/docker/volume"
+	volumedrivers "github.com/docker/docker/volume/drivers"
 )
+
+var localMountErr = fmt.Errorf("Invalid driver: %s driver doesn't support named volumes", volume.DefaultDriverName)
 
 type MountPoint struct {
 	Name        string
@@ -50,7 +53,7 @@ func (m *MountPoint) Source() string {
 	return m.source
 }
 
-func parseBindMount(container *Container, spec string) (*MountPoint, error) {
+func parseBindMount(spec string, config *runconfig.Config) (*MountPoint, error) {
 	bind := &MountPoint{
 		RW: true,
 	}
@@ -61,14 +64,19 @@ func parseBindMount(container *Container, spec string) (*MountPoint, error) {
 		bind.Destination = arr[1]
 	case 3:
 		bind.Destination = arr[1]
-		bind.RW = validMountMode(arr[2]) && arr[2] == "rw"
+		if !validMountMode(arr[2]) {
+			return nil, fmt.Errorf("invalid mode for volumes-from: %s", arr[2])
+		}
+		bind.RW = arr[2] == "rw"
 	default:
 		return nil, fmt.Errorf("Invalid volume specification: %s", spec)
 	}
 
 	if !filepath.IsAbs(arr[0]) {
-		bind.Name = arr[0]
-		bind.Driver = container.Config.VolumeDriver
+		bind.Driver, bind.Name = parseNamedVolumeInfo(arr[0], config)
+		if bind.Driver == volume.DefaultDriverName {
+			return nil, localMountErr
+		}
 	} else {
 		bind.source = filepath.Clean(arr[0])
 	}
@@ -77,15 +85,31 @@ func parseBindMount(container *Container, spec string) (*MountPoint, error) {
 	return bind, nil
 }
 
+func parseNamedVolumeInfo(info string, config *runconfig.Config) (driver string, name string) {
+	p := strings.SplitN(info, "/", 2)
+	switch len(p) {
+	case 2:
+		driver = p[0]
+		name = p[1]
+	default:
+		if driver = config.VolumeDriver; len(driver) == 0 {
+			driver = volume.DefaultDriverName
+		}
+		name = p[0]
+	}
+
+	return
+}
+
 func parseVolumesFrom(spec string) (string, string, error) {
-	specParts := strings.SplitN(spec, ":", 2)
-	if len(specParts) == 0 {
+	if len(spec) == 0 {
 		return "", "", fmt.Errorf("malformed volumes-from specification: %s", spec)
 	}
-	var (
-		id   = specParts[0]
-		mode = "rw"
-	)
+
+	specParts := strings.SplitN(spec, ":", 2)
+	id := specParts[0]
+	mode := "rw"
+
 	if len(specParts) == 2 {
 		mode = specParts[1]
 		if !validMountMode(mode) {
@@ -123,14 +147,22 @@ func copyExistingContents(source, destination string) error {
 	return copyOwnership(source, destination)
 }
 
+// registerMountPoints initializes the container mount points with the configured volumes and bind mounts.
+// It follows the next sequence to decide what to mount in each final destination:
+//
+// 1. Select the previously configured mount points for the containers, if any.
+// 2. Select the volumes mounted from another containers. Overrides previously configured mount point destination.
+// 3. Select the bind mounts set by the client. Overrides previously configured mount point destinations.
 func (daemon *Daemon) registerMountPoints(container *Container, hostConfig *runconfig.HostConfig) error {
 	binds := map[string]bool{}
 	mountPoints := map[string]*MountPoint{}
 
+	// 1. Read already configured mount points.
 	for name, point := range container.MountPoints {
 		mountPoints[name] = point
 	}
 
+	// 2. Read volumes from other containers.
 	for _, v := range hostConfig.VolumesFrom {
 		containerID, mode, err := parseVolumesFrom(v)
 		if err != nil {
@@ -143,7 +175,7 @@ func (daemon *Daemon) registerMountPoints(container *Container, hostConfig *runc
 		}
 
 		for _, m := range c.MountPoints {
-			v, err := daemon.createVolume(m.Name, m.Driver)
+			v, err := createVolume(m.Name, m.Driver)
 			if err != nil {
 				return err
 			}
@@ -156,9 +188,10 @@ func (daemon *Daemon) registerMountPoints(container *Container, hostConfig *runc
 		}
 	}
 
+	// 3. Read bind mounts
 	for _, b := range hostConfig.Binds {
 		// #10618
-		bind, err := parseBindMount(container, b)
+		bind, err := parseBindMount(b, container.Config)
 		if err != nil {
 			return err
 		}
@@ -168,7 +201,7 @@ func (daemon *Daemon) registerMountPoints(container *Container, hostConfig *runc
 		}
 
 		if len(bind.Name) > 0 && len(bind.Driver) > 0 {
-			v, err := daemon.createVolume(bind.Name, bind.Driver)
+			v, err := createVolume(bind.Name, bind.Driver)
 			if err != nil {
 				return err
 			}
@@ -184,6 +217,8 @@ func (daemon *Daemon) registerMountPoints(container *Container, hostConfig *runc
 	return nil
 }
 
+// verifyOldVolumesInfo ports volumes configured for the containers pre docker 1.7.
+// It reads the container configuration and creates valid mount points for the old volumes.
 func (daemon *Daemon) verifyOldVolumesInfo(container *Container) error {
 	jsonPath, err := container.jsonPath()
 	if err != nil {
@@ -215,7 +250,7 @@ func (daemon *Daemon) verifyOldVolumesInfo(container *Container) error {
 
 			container.MountPoints[destination] = &MountPoint{
 				Name:        id,
-				Driver:      "local",
+				Driver:      volume.DefaultDriverName,
 				Destination: destination,
 				RW:          vols.VolumesRW[destination],
 			}
@@ -223,4 +258,31 @@ func (daemon *Daemon) verifyOldVolumesInfo(container *Container) error {
 	}
 
 	return container.ToDisk()
+}
+
+func createVolume(name, driverName string) (volume.Volume, error) {
+	vd, err := getVolumeDriver(driverName)
+	if err != nil {
+		return nil, err
+	}
+	return vd.Create(name)
+}
+
+func removeVolume(v volume.Volume) error {
+	vd, err := getVolumeDriver(v.DriverName())
+	if err != nil {
+		return nil
+	}
+	return vd.Remove(v)
+}
+
+func getVolumeDriver(name string) (volume.Driver, error) {
+	if name == "" {
+		name = volume.DefaultDriverName
+	}
+	vd := volumedrivers.Lookup(name)
+	if vd == nil {
+		return nil, fmt.Errorf("Volumes Driver %s isn't registered", name)
+	}
+	return vd, nil
 }

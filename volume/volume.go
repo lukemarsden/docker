@@ -1,5 +1,7 @@
 package volume
 
+const DefaultDriverName = "local"
+
 type Driver interface {
 	// Name returns the name of the volume driver.
 	Name() string
