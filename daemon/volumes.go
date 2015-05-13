@@ -16,7 +16,7 @@ import (
 
 var localMountErr = fmt.Errorf("Invalid driver: %s driver doesn't support named volumes", volume.DefaultDriverName)
 
-type MountPoint struct {
+type mountPoint struct {
 	Name        string
 	Destination string
 	Driver      string
@@ -25,7 +25,7 @@ type MountPoint struct {
 	source      string
 }
 
-func (m *MountPoint) Setup() (string, error) {
+func (m *mountPoint) Setup() (string, error) {
 	if m.Volume != nil {
 		return m.Volume.Mount()
 	}
@@ -45,7 +45,7 @@ func (m *MountPoint) Setup() (string, error) {
 	return "", fmt.Errorf("Unable to setup mount point, neither source nor volume defined")
 }
 
-func (m *MountPoint) Source() string {
+func (m *mountPoint) Source() string {
 	if m.Volume != nil {
 		return m.Volume.Path()
 	}
@@ -53,8 +53,8 @@ func (m *MountPoint) Source() string {
 	return m.source
 }
 
-func parseBindMount(spec string, config *runconfig.Config) (*MountPoint, error) {
-	bind := &MountPoint{
+func parseBindMount(spec string, config *runconfig.Config) (*mountPoint, error) {
+	bind := &mountPoint{
 		RW: true,
 	}
 	arr := strings.Split(spec, ":")
@@ -155,7 +155,7 @@ func copyExistingContents(source, destination string) error {
 // 3. Select the bind mounts set by the client. Overrides previously configured mount point destinations.
 func (daemon *Daemon) registerMountPoints(container *Container, hostConfig *runconfig.HostConfig) error {
 	binds := map[string]bool{}
-	mountPoints := map[string]*MountPoint{}
+	mountPoints := map[string]*mountPoint{}
 
 	// 1. Read already configured mount points.
 	for name, point := range container.MountPoints {
@@ -248,12 +248,7 @@ func (daemon *Daemon) verifyOldVolumesInfo(container *Container) error {
 		if strings.HasPrefix(hostPath, vfsPath) {
 			id := filepath.Base(hostPath)
 
-			container.MountPoints[destination] = &MountPoint{
-				Name:        id,
-				Driver:      volume.DefaultDriverName,
-				Destination: destination,
-				RW:          vols.VolumesRW[destination],
-			}
+			container.AddLocalMountPoint(id, destination, vols.VolumesRW[destination])
 		}
 	}
 

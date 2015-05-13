@@ -213,14 +213,8 @@ func (daemon *Daemon) register(container *Container, updateSuffixarray bool) err
 		return err
 	}
 
-	for _, config := range container.MountPoints {
-		if len(config.Driver) > 0 {
-			v, err := createVolume(config.Name, config.Driver)
-			if err != nil {
-				return err
-			}
-			config.Volume = v
-		}
+	if err := container.PrepareMountPoints(); err != nil {
+		return err
 	}
 
 	if container.IsRunning() {
@@ -601,7 +595,7 @@ func (daemon *Daemon) newContainer(name string, config *runconfig.Config, imgID 
 		ExecDriver:      daemon.execDriver.Name(),
 		State:           NewState(),
 		execCommands:    newExecStore(),
-		MountPoints:     map[string]*MountPoint{},
+		MountPoints:     map[string]*mountPoint{},
 	}
 	container.root = daemon.containerRoot(container.ID)
 	return container, err

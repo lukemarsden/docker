@@ -43,6 +43,7 @@ import (
 	"github.com/docker/docker/pkg/ulimit"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/docker/utils"
+	"github.com/docker/docker/volume"
 )
 
 const DefaultPathEnv = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -85,6 +86,7 @@ type Container struct {
 	AppArmorProfile          string
 	RestartCount             int
 	UpdateDns                bool
+	MountPoints              map[string]*mountPoint
 
 	command      *execdriver.Command
 	daemon       *Daemon
@@ -95,8 +97,6 @@ type Container struct {
 	// logDriver for closing
 	logDriver logger.Logger
 	logCopier *logger.Copier
-
-	MountPoints map[string]*MountPoint
 }
 
 func (container *Container) FromDisk() error {
@@ -1902,6 +1902,53 @@ func (container *Container) networkMounts() []execdriver.Mount {
 		})
 	}
 	return mounts
+}
+
+func (container *Container) AddLocalMountPoint(name, destination string, rw bool) {
+	container.MountPoints[destination] = &mountPoint{
+		Name:        name,
+		Driver:      volume.DefaultDriverName,
+		Destination: destination,
+		RW:          rw,
+	}
+}
+
+func (container *Container) AddMountPointWithVolume(destination string, vol volume.Volume, rw bool) {
+	container.MountPoints[destination] = &mountPoint{
+		Name:        vol.Name(),
+		Driver:      vol.DriverName(),
+		Destination: destination,
+		RW:          rw,
+		Volume:      vol,
+	}
+}
+
+func (container *Container) IsDestinationMounted(destination string) bool {
+	return container.MountPoints[destination] != nil
+}
+
+func (container *Container) PrepareMountPoints() error {
+	for _, config := range container.MountPoints {
+		if len(config.Driver) > 0 {
+			v, err := createVolume(config.Name, config.Driver)
+			if err != nil {
+				return err
+			}
+			config.Volume = v
+		}
+	}
+	return nil
+}
+
+func (container *Container) RemoveMountPoints() error {
+	for _, m := range container.MountPoints {
+		if m.Volume != nil {
+			if err := removeVolume(m.Volume); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func sortMounts(m []execdriver.Mount) []execdriver.Mount {

@@ -51,6 +51,7 @@ func (daemon *Daemon) ContainerInspect(name string) (*types.ContainerJSON, error
 		StartedAt:  container.State.StartedAt,
 		FinishedAt: container.State.FinishedAt,
 	}
+
 	volumes := make(map[string]string)
 	volumesRW := make(map[string]bool)
 
