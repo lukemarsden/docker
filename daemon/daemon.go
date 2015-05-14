@@ -255,10 +255,15 @@ func (daemon *Daemon) ensureName(container *Container) error {
 }
 
 func (daemon *Daemon) restore() error {
+	type cr struct {
+		container  *Container
+		registered bool
+	}
+
 	var (
 		debug         = (os.Getenv("DEBUG") != "" || os.Getenv("TEST") != "")
-		containers    = make(map[string]*Container)
 		currentDriver = daemon.driver.String()
+		containers    = make(map[string]*cr)
 	)
 
 	if !debug {
@@ -284,13 +289,11 @@ func (daemon *Daemon) restore() error {
 		if (container.Driver == "" && currentDriver == "aufs") || container.Driver == currentDriver {
 			logrus.Debugf("Loaded container %v", container.ID)
 
-			containers[container.ID] = container
+			containers[container.ID] = &cr{container: container}
 		} else {
 			logrus.Debugf("Cannot load container %s because it was created with another graph driver.", container.ID)
 		}
 	}
-
-	registeredContainers := []*Container{}
 
 	if entities := daemon.containerGraph.List("/", -1); entities != nil {
 		for _, p := range entities.Paths() {
@@ -300,50 +303,43 @@ func (daemon *Daemon) restore() error {
 
 			e := entities[p]
 
-			if container, ok := containers[e.ID()]; ok {
-				if err := daemon.register(container, false); err != nil {
-					logrus.Debugf("Failed to register container %s: %s", container.ID, err)
-				}
-
-				registeredContainers = append(registeredContainers, container)
-
-				// delete from the map so that a new name is not automatically generated
-				delete(containers, e.ID())
+			if c, ok := containers[e.ID()]; ok {
+				c.registered = true
 			}
 		}
 	}
 
-	// Any containers that are left over do not exist in the graph
-	for _, container := range containers {
-		// Try to set the default name for a container if it exists prior to links
-		container.Name, err = daemon.generateNewName(container.ID)
-		if err != nil {
-			logrus.Debugf("Setting default id - %s", err)
-		}
+	group := sync.WaitGroup{}
+	for _, c := range containers {
+		group.Add(1)
 
-		if err := daemon.register(container, false); err != nil {
-			logrus.Debugf("Failed to register container %s: %s", container.ID, err)
-		}
+		go func(container *Container, registered bool) {
+			defer group.Done()
 
-		registeredContainers = append(registeredContainers, container)
-	}
+			if !registered {
+				// Try to set the default name for a container if it exists prior to links
+				container.Name, err = daemon.generateNewName(container.ID)
+				if err != nil {
+					logrus.Debugf("Setting default id - %s", err)
+				}
+			}
 
-	// check the restart policy on the containers and restart any container with
-	// the restart policy of "always"
-	if daemon.config.AutoRestart {
-		logrus.Debug("Restarting containers...")
+			if err := daemon.register(container, false); err != nil {
+				logrus.Debugf("Failed to register container %s: %s", container.ID, err)
+			}
 
-		for _, container := range registeredContainers {
-			if container.hostConfig.RestartPolicy.IsAlways() ||
-				(container.hostConfig.RestartPolicy.IsOnFailure() && container.ExitCode != 0) {
+			// check the restart policy on the containers and restart any container with
+			// the restart policy of "always"
+			if daemon.config.AutoRestart && container.ShouldRestart() {
 				logrus.Debugf("Starting container %s", container.ID)
 
 				if err := container.Start(); err != nil {
 					logrus.Debugf("Failed to start container %s: %s", container.ID, err)
 				}
 			}
-		}
+		}(c.container, c.registered)
 	}
+	group.Wait()
 
 	if !debug {
 		if logrus.GetLevel() == logrus.InfoLevel {

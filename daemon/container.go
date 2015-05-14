@@ -1951,6 +1951,11 @@ func (container *Container) RemoveMountPoints() error {
 	return nil
 }
 
+func (container *Container) ShouldRestart() bool {
+	return container.hostConfig.RestartPolicy.Name == "always" ||
+		(container.hostConfig.RestartPolicy.Name == "on-failure" && container.ExitCode != 0)
+}
+
 func sortMounts(m []execdriver.Mount) []execdriver.Mount {
 	sort.Sort(mounts(m))
 	return m
