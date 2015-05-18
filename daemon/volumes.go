@@ -22,7 +22,7 @@ type mountPoint struct {
 	Driver      string
 	RW          bool
 	Volume      volume.Volume `json:"-"`
-	source      string
+	Source      string
 }
 
 func (m *mountPoint) Setup() (string, error) {
@@ -30,27 +30,27 @@ func (m *mountPoint) Setup() (string, error) {
 		return m.Volume.Mount()
 	}
 
-	if len(m.source) > 0 {
-		if _, err := os.Stat(m.source); err != nil {
+	if len(m.Source) > 0 {
+		if _, err := os.Stat(m.Source); err != nil {
 			if !os.IsNotExist(err) {
 				return "", err
 			}
-			if err := os.MkdirAll(m.source, 0755); err != nil {
+			if err := os.MkdirAll(m.Source, 0755); err != nil {
 				return "", err
 			}
 		}
-		return m.source, nil
+		return m.Source, nil
 	}
 
 	return "", fmt.Errorf("Unable to setup mount point, neither source nor volume defined")
 }
 
-func (m *mountPoint) Source() string {
+func (m *mountPoint) Path() string {
 	if m.Volume != nil {
 		return m.Volume.Path()
 	}
 
-	return m.source
+	return m.Source
 }
 
 func parseBindMount(spec string, config *runconfig.Config) (*mountPoint, error) {
@@ -78,7 +78,7 @@ func parseBindMount(spec string, config *runconfig.Config) (*mountPoint, error) 
 			return nil, localMountErr
 		}
 	} else {
-		bind.source = filepath.Clean(arr[0])
+		bind.Source = filepath.Clean(arr[0])
 	}
 
 	bind.Destination = filepath.Clean(bind.Destination)

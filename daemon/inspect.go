@@ -56,7 +56,7 @@ func (daemon *Daemon) ContainerInspect(name string) (*types.ContainerJSON, error
 	volumesRW := make(map[string]bool)
 
 	for _, m := range container.MountPoints {
-		volumes[m.Destination] = m.Source()
+		volumes[m.Destination] = m.Path()
 		volumesRW[m.Destination] = m.RW
 	}
 
