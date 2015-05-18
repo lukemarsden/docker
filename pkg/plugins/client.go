@@ -63,7 +63,7 @@ func (c *Client) callWithRetry(serviceMethod string, args interface{}, ret inter
 				return err
 			}
 			retries++
-			logrus.Warn("Unable to connect to plugin: %s, retrying in %ds\n", c.addr, timeOff)
+			logrus.Warnf("Unable to connect to plugin: %s, retrying in %v", c.addr, timeOff)
 			time.Sleep(timeOff)
 			continue
 		}
