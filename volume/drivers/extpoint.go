@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/plugins"
+	"github.com/docker/docker/pkg/plugins"
 	"github.com/docker/docker/volume"
 )
 
