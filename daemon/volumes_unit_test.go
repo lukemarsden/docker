@@ -73,8 +73,8 @@ func TestParseBindMount(t *testing.T) {
 			t.Fatalf("Expected destination %s, was %s, for spec %s\n", c.expDest, m.Destination, c.bind)
 		}
 
-		if m.source != c.expSource {
-			t.Fatalf("Expected source %s, was %s, for spec %s\n", c.expSource, m.source, c.bind)
+		if m.Source != c.expSource {
+			t.Fatalf("Expected source %s, was %s, for spec %s\n", c.expSource, m.Source, c.bind)
 		}
 
 		if m.Name != c.expName {
