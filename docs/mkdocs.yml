@@ -71,6 +71,7 @@ pages:
 - ['compose/extends.md', 'User Guide', '&nbsp;&nbsp;&nbsp;&nbsp;&blacksquare;&nbsp; Extend Compose services' ]
 - ['machine/index.md', 'User Guide', 'Docker Machine' ]
 - ['swarm/index.md', 'User Guide', 'Docker Swarm' ]
+- ['userguide/plugins.md', 'User Guide', 'Docker Plugins']
 
 # Docker Hub docs:
 - ['docker-hub/index.md', 'Docker Hub', 'Docker Hub' ]
@@ -180,6 +181,7 @@ pages:
 - ['reference/api/docker_remote_api_v1.0.md', '**HIDDEN**']
 - ['reference/api/remote_api_client_libraries.md', 'Reference', 'Docker Remote API client libraries']
 - ['reference/api/docker_io_accounts_api.md', 'Reference', 'Docker Hub accounts API']
+- ['reference/api/plugin_api.md', 'Reference', 'Docker Plugin API']
 
 # Hidden registry files
 - ['registry/storage-drivers/azure.md', '**HIDDEN**' ]
